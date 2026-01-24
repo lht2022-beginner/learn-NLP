@@ -1,0 +1,366 @@
+# 第一节 BERT 结构及应用
+
+Transformer 架构由一个编码器和一个解码器组成，而这两部分内部又分别由 N 个相同的层堆叠而成。Transformer 的提出催生了许多强大的预训练模型, 这些后续模型往往只采用了 Transformer 架构的一部分。其中，以 GPT 为代表的模型**采用解码器结构**，主要任务是预测下一个词元，这种特性使其天然适用于文本生成任务。而 **BERT（Bidirectional Encoder Representations from Transformers）**，则完全基于**编码器结构**构建 。
+
+BERT 的核心优势在于其**双向性**。通过 Transformer 编码器中自注意力机制能够同时关注上下文的特性，BERT 在理解语言的深层语义方面取得了突破性进展。这一设计也决定了 BERT 的核心应用场景，它是一个强大的**语言理解**模型，但在不进行结构改造的前提下，**不适用于文本生成**。这是因为它在预测时能够“看到”整个输入序列，而以 GPT 为代表的生成模型在预测下一个词时，必须严格遵守“只能看到过去”的单向规则。
+
+## 一、BERT 的设计原理与预训练策略
+
+在 BERT 出现之前，像 Word2Vec 这样的模型能够为词语生成一个固定的向量表示（静态词向量），但无法解决一词多义的问题。BERT 的设计初衷就是为了解决这个问题，它的目标是生成**动态的、与上下文相关的词向量**。它不仅仅是一个词向量生成工具，更是一个强大的**预训练语言模型**。其工作范式可以分为两个主要阶段，
+
+- **预训练 (Pre-training)**
+    - 在一个庞大的、通用的文本语料库（如维基百科、书籍）上，通过特定的无监督任务来训练一个深度神经网络模型。
+    - 这个阶段的目标不是为了完成某个具体的 NLP 任务，而是让模型学习语言本身的规律，比如语法结构、词语间的语义关系、上下文依赖等。
+    - 训练完成后，就得到了一个包含了丰富语言知识的、参数已经训练好的**预训练模型**。
+
+- **微调 (Fine-tuning)**
+    - 当面临一个具体的下游任务时（如文本分类、命名实体识别），不再从头开始训练模型。而是把预训练好的 BERT 模型作为任务模型的**基础结构**。加载它已经学习到的所有参数作为**初始值**。 
+    - 接着根据具体任务，在 BERT 模型之上增加一个小的、任务相关的输出层（例如，一个用于分类的全连接层）。
+    - 最后在自己的任务数据集上对整个模型（或仅仅是顶部的输出层）进行训练。由于模型已经具备了强大的语言理解能力，这个微调过程通常非常快速，并且只需要相对较少的数据就能达到很好的效果。
+
+这种 **“预训练 + 微调”** 的训练范式，属于**迁移学习**的一种实现，也是 BERT 的训练框架。它能够从海量数据中学到的通用语言知识，迁移到数据量有限的特定任务中。
+
+> **与 RNN/LSTM 的区别**
+>
+> 虽然目标相似，但实现方式和效果却有很大的差别。Bi-LSTM 这样的循环神经网络也能捕捉上下文信息, 但“双向”本质上是两个独立的单向 RNN（一个正向，一个反向）的**浅层拼接**。在计算过程中，正向 RNN 并不知道未来的信息，反向 RNN 也不知道过去的信息。
+>
+> 而 BERT 基于 Transformer 的**自注意力机制**，实现了**真正的“深度双向”**。也就是上一节中所学到的，自注意力机制使模型的每一层，计算任何一个词的表示时，都能**同时与序列中的所有其他词直接交互**。这种全局视野让 BERT 能够捕捉到比 RNN 更复杂、更长距离的依赖关系，并且其并行计算的特性也远比 RNN 的串行结构高效。
+
+## 二、BERT 架构详解
+
+### 2.1 BERT 的模型规模
+
+与 Transformer 论文中 N=6 不同，BERT 提供了几种不同规模的预训练模型，以适应不同的计算资源和性能需求。其中最常见的两个是如表 5-1 所示的 `BERT Base` 与 `BERT Large`。
+
+<div align="center">
+
+<table border="1" style="margin: 0 auto;">
+<tr>
+  <td style="text-align: center;"><strong>模型</strong></td>
+  <td style="text-align: center;"><strong>层数 (L)</strong></td>
+  <td style="text-align: center;"><strong>隐藏层大小 (H)</strong></td>
+  <td style="text-align: center;"><strong>注意力头数 (A)</strong></td>
+  <td style="text-align: center;"><strong>总参数量</strong></td>
+</tr>
+<tr>
+  <td style="text-align: center;"><code>BERT-Base</code></td>
+  <td style="text-align: center;">12</td>
+  <td style="text-align: center;">768</td>
+  <td style="text-align: center;">12</td>
+  <td style="text-align: center;">~1.1 亿</td>
+</tr>
+<tr>
+  <td style="text-align: center;"><code>BERT-Large</code></td>
+  <td style="text-align: center;">24</td>
+  <td style="text-align: center;">1024</td>
+  <td style="text-align: center;">16</td>
+  <td style="text-align: center;">~3.4 亿</td>
+</tr>
+</table>
+
+<p><em>表 5-1 BERT Base 与 BERT Large 模型规模对比</em></p>
+
+</div>
+
+通过加深、加宽网络，BERT 拥有了比原始 Transformer 更强大的特征提取和表示能力。
+
+### 2.2 BERT 的输入表示
+
+由三个部分的嵌入向量**逐元素相加**而成：
+
+$$
+Input_{embedding} = Token_{embedding} + Position_{embedding} + Segment_{embedding}
+$$
+
+
+
+（1）**词元嵌入**:
+
+- 与之前模型类似，这是每个词元（Token）自身的向量表示。
+- BERT 使用一种称为 **WordPiece** 的分词方法 。它能够将不常见的词拆分成更小的子词单元（如 "studying" -> "study", "##ing"），有效处理了未登录词问题。对于 `bert-base-chinese` 模型，其词表**以单字为主，也包含少量常用词**，因此在处理中文时，其效果接近于按字分词，但更准确的描述是**子词切分**。
+
+（2）**片段嵌入**:
+
+- 这是 BERT 为了处理句子对任务（如判断两个句子是否是连续的）而引入的，用于区分输入中的不同句子。
+
+
+（3）**位置嵌入**:
+
+- 由于 Transformer 的自注意力机制本身不包含位置信息，必须额外引入位置编码来告诉模型每个词元在序列中的位置。
+- 与原始 Transformer 使用固定的正余弦函数不同，BERT 采用的是**可学习的位置嵌入**。即创建一个大小为 `[max_position_embeddings, hidden_size]` 的嵌入表，让模型在预训练过程中自己学习每个位置的最佳向量表示。
+- **BERT 的最大长度限制**：可学习的位置嵌入表决定了 BERT 的最大输入长度。例如，在 `BERT-Base` 模型中，这个嵌入表的大小通常是 `[512, 768]`，这意味着模型最多只能处理 512 个词元的序列。这并非 Transformer 架构本身的限制，而是 BERT 预训练时设定的一个参数。
+
+最终，每个输入词元的表示向量，是上述三种嵌入向量相加的结果。
+
+### 2.3 特殊词元
+
+BERT 在输入序列中引入了几个特殊的词元，它们在预训练和微调阶段扮演着重要的角色：
+
+- **`[CLS]` (Classification)**:
+  - 这个词元被添加到 **每个输入序列的开头**。
+  - BERT 的一个特殊设计是，这个 `[CLS]` 词元在经过整个编码器网络后的最终输出向量，被视为整个输入序列的 **聚合表示**。
+  - 因此，在进行文本分类、情感分析等句子级别的任务时，通常只取用 `[CLS]` 对应的输出向量，然后将其送入一个分类器。
+
+- **`[SEP]` (Separator)**:
+  - 这个词元用于 **分隔不同的句子**。
+  - 输入单个句子时，它被添加在句子的末尾。
+  - 句子对被用在两个句子之间，以及整个序列的末尾。
+
+- **`[MASK]`**:
+  - 这个词元仅在 **预训练阶段** 使用，用于“掩盖”掉输入序列中的某些词元，是“掩码语言模型”任务的核心。
+
+- **`[PAD]` (Padding)**:
+  - 用于将不同长度的输入序列补齐到相同的长度（例如 512），以便进行批量处理。
+  - 在计算注意力时，这些位置会被 `Attention Mask` 屏蔽，不参与计算。
+
+- **`[UNK]` (Unknown)**:
+    - 词表中不存在的字符或词汇。
+
+## 三、BERT 的预训练任务
+
+是BERT理解能力出众的关键
+
+### 3.1 任务一：掩码语言模型 (Masked Language Model, MLM)
+
+传统的语言模型（如 GPT）是单向的，只能根据前面的词预测下一个词。如果我们想让模型同时利用上下文信息，简单地将左右两侧的词都作为输入来预测当前词，会导致在多层网络中，模型会“间接地看到自己”，预测任务将变得毫无意义。
+
+为了解决这个问题，BERT 引入了 MLM。它的思路是在输入文本中随机遮盖掉一部分词元（Token），然后训练模型去**根据上下文预测这些被遮盖的词元**。这就像在做“完形填空”一样，迫使模型学习词元之间深层次的语义关系和句法结构。
+
+MLM 的执行策略如下：
+
+（1）**随机选择**：在每一个训练序列中，随机挑选 **15%** 的词元作为预测目标。
+
+（2）**特殊替换策略**：为了缓解**预训练**（有 `[MASK]` 标记）与**微调**（没有 `[MASK]` 标记）阶段的数据差异，对于这 15% 被选中的词元，采用如下“80/10/10”的替换方法。假设 `My son is a good stu` 的 `son` 词元被选中：
+
+- **80% 的情况**：将选中的词元替换为 `[MASK]` 标记。
+  - **示例**：`My [MASK] is a good stu`
+  - **目的**：核心的操作，强制模型利用上下文信息来预测被“挖空”的词。
+- **10% 的情况**：将选中的词元替换成一个**随机**的其他词元。
+  - **示例**：`My apple is a good stu` (随机替换为 `apple`)
+  - **目的**：相当于为模型引入了噪声。一方面，它要求模型不仅要理解上下文，还要具备识别并纠正错误词元的能力，从而增强模型的鲁棒性；另一方面，它也促使模型去学习每一个输入词元的分布式特征表示，而不是仅仅“依赖”`[MASK]`标记去触发预测。
+- **10% 的情况**：保持不变。
+  - **目的**：这是为了让模型在看到真实词元时也去预测它自己，从而使得模型更好地学习每一个真实词元的上下文表示，减轻预训练和微调阶段的**数据不匹配**问题。
+
+通过这种方式，MLM 任务促使 BERT 学习到一种**动态的、与上下文深度融合的词向量表示**。
+
+> **MLM 的局限**
+>
+> 由于 MLM 是随机 Mask 单个字或子词，可能会**割裂一个完整词语的内部语义联系**。例如，对于 “菩提老祖” 这个词，模型可能会只 Mask “菩” 或 “提”，而无法在词的层面上进行学习。为了解决这个问题，后续的研究提出了 **WWM (Whole Word Masking, 全词掩码)** 的策略。即如果一个词的一部分被选中进行 Mask，那么这个词的所有部分都会被一起 Mask。这项技术在中英文任务上都取得了效果提升。
+
+### 3.2 任务二：下一句预测 (Next Sentence Prediction, NSP)
+
+NSP 任务的目标是让模型理解句子与句子之间的逻辑关系。在训练时，模型会接收一对句子 A 和 B，并判断句子 B 是否是句子 A 在原文中的下一句。
+
+（1）**构造句子对**: 在预训练时，为模型准备句子对 (A, B)。其中，50% 的情况下，B 是 A 的真实下一句；另外 50% 的情况下，B 是从语料库中随机选择的一个句子。
+
+（2）**二分类任务**: 模型需要预测 B 是否是 A 的下一句。
+
+这个任务的预测，正是通过 2.3 节中的 `[CLS]` 词元的输出来完成的。将 `[CLS]` 的最终隐藏状态送入一个二分类器，来判断 `IsNext` 还是 `NotNext`，从而训练 `[CLS]` 向量学习句子级别的聚合特征。
+
+> **NSP 的有效性讨论**
+>
+> 后续研究对 NSP 的有效性提出了质疑，发现在更大规模的预训练下，移除它或用句子顺序预测会带来更好的效果。
+>
+> 但是，在 BERT 的原始论文中，消融实验证明，在当时的训练设置下，移除 NSP 会导致在问答（QNLI）和自然语言推断（MNLI）等任务上性能明显下降。这说明 NSP 任务确实帮助原始 BERT 模型学习到了句子级别的关系，在特定场景下依然有其价值。
+
+## 四、BERT 的应用与实践
+
+预训练完成后，根据具体的任务来释放它的能力。
+
+### 4.1 微调下游任务
+
+（1）文本分类任务：对于文本分类任务（如情感分析、意图识别），主要利用 `[CLS]` 词元的聚合表示能力（见 2.3 节）。
+
+- **输入构造**: 将单个句子或句子对按照 BERT 的要求格式化（添加 `[CLS]` 和 `[SEP]`）。
+- **获取表示**: 提取 `[CLS]` 词元对应的最终输出向量。
+- **添加分类头**: 在这个向量之上，添加一个简单的全连接层作为分类器，其输出维度等于任务的类别数量。
+- **微调**: 在任务数据上，训练这个新添加的分类器，同时对 BERT 模型的参数进行微调（通常使用比预训练时小得多的学习率）。
+
+（2）词元分类任务：对于词元级别的任务（如命名实体识别、分词、词性标注），需要为输入序列中的每一个词元进行分类。
+
+- **输入构造**: 与文本分类类似，将序列格式化。
+- **获取表示**: 将输入送入 BERT 模型，但这次提取 **所有词元** 对应的最终输出向量序列。输出的形状为 `(batch_size, sequence_length, hidden_size)`。
+- **添加分类头**: 在这个序列之上，添加一个全连接层（可以看作是在时间维度上共享权重），将每个词元的 `hidden_size` 维向量映射到类别数量的维度。
+- **微调**: 在任务数据上进行端到端的训练和微调。
+
+（3）其他任务：BERT 的应用非常广泛，几乎可以适配所有的 NLP 任务。例如，在问答任务中，可以将问题和段落作为两个句子输入 BERT，然后训练模型去预测答案在段落中的起始和结束位置。
+
+### 4.2 实践技巧与生态
+
+#### 4.2.1 输入处理与限制
+
+在进行 BERT 微调时，有两点需要特别注意：
+
+（1）**最大长度限制**:
+
+- 标准的 BERT 模型（如 `bert-base-chinese`）通常设定的最大输入长度为 **512** 个 Token。虽然这个长度并非架构本身的限制（可以修改位置嵌入表大小来调整），但大多数预训练模型都遵循这一设定。
+- 这 512 个位置中包含了特殊 Token。所以，实际输入文本的有效长度最多为 **510** 个 Token（512 - `[CLS]` - `[SEP]`）。如果是句子对任务，则两个句子的总长度加上 3 个特殊 Token（`[CLS]`, `[SEP]`, `[SEP]`）不能超过 512。
+
+（2）**特殊 Token 的添加**:
+
+- 输入序列的开头必须添加 **`[CLS]`**，结尾必须添加 **`[SEP]`**。
+- 现在的 `Tokenizer`（如 `tokenizer(text, ...)`）会自动处理这些特殊 Token 的添加，手动分析注意。
+
+#### 4.2.2 特征提取策略
+
+通常使用最后一层的输出作为词元或句子的特征表示，但这并非唯一选择。研究和实践表明，BERT 的不同层级学习到的特征有所侧重：
+
+-   **底层** 更偏向于捕捉 **词法、语法** 等表层信息。
+-   **高层** 更偏向于捕捉 **语义、语境** 等深层信息。
+
+在某些任务（如命名实体识别）中，将最后几层（例如，最后四层）的向量进行拼接（Concatenate）或相加（Sum），有时能获得比单独使用最后一层更好的效果。
+
+#### 4.2.3 Hugging Face Transformers 生态
+
+如今，从头实现或手动管理 BERT 模型已无必要。**Hugging Face** 公司开源的 `transformers` 库已经成为 NLP 领域的标准工具。
+
+ 它提供了一个庞大的模型仓库，包含了几乎所有主流的预训练模型（包括各种语言、各种规模的 BERT）。用户可以在 [Hugging Face 官网](https://huggingface.co/models) 或其国内镜像上查找、下载和试用这些模型。
+
+
+## 五、BERT 代码实战
+
+展示如何使用 `transformers` 库加载预训练的 BERT 模型，并从中提取文本特征向量。首先准备好Transformers环境。
+
+
+### 5.1 代码示例
+
+以下代码涵盖了从加载模型到提取特征的完整流程：
+
+```python
+import torch
+import os
+from transformers import AutoTokenizer, AutoModel
+
+# 1. 环境和模型配置
+# os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com' # 可选：设置镜像
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model_name = "bert-base-chinese"
+texts = ["我来自中国", "我喜欢自然语言处理"]
+
+# 2. 加载模型和分词器
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name).to(device)
+model.eval()
+
+print("\n--- BERT 模型结构 ---")
+print(model)
+
+# 3. 文本预处理
+inputs = tokenizer(texts, padding=True, truncation=True, return_tensors="pt").to(device)
+
+# 打印 Tokenizer 的完整输出，以理解其内部结构
+print("\n--- Tokenizer 输出 ---")
+for key, value in inputs.items():
+    print(f"{key}: \n{value}\n")
+
+# 4. 模型推理
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# 5. 提取特征
+last_hidden_state = outputs.last_hidden_state
+sentence_features_pooler = getattr(outputs, "pooler_output", None)
+
+# (1) 提取句子级别的特征向量 ([CLS] token)
+sentence_features = last_hidden_state[:, 0, :]
+
+# (2) 提取第一个句子的词元级别特征
+first_sentence_tokens = last_hidden_state[0, 1:6, :]
+
+
+print("\n--- 特征提取结果 ---")
+print(f"句子特征 shape: {sentence_features.shape}")
+if sentence_features_pooler is not None:
+    print(f"pooler_output shape: {sentence_features_pooler.shape}")
+print(f"第一个句子的词元特征 shape: {first_sentence_tokens.shape}")
+```
+
+（1）**加载模型和分词器**：使用 `AutoTokenizer.from_pretrained(model_name)` 和 `AutoModel.from_pretrained(model_name)` 来自动下载并加载指定的预训练模型。
+
+（2）**文本预处理**：`tokenizer(...)` 函数的输出是一个字典，其中包含了模型所需的全部输入信息。
+- `input_ids`: 这是文本被转换为的 token ID 序列。Tokenizer 会在合适的位置自动添加 `101` (`[CLS]`) 和 `102` (`[SEP]`) 等特殊标记；批次中较短的句子会被 `0` (`[PAD]`) 填充到与最长序列等长（或到指定的 `max_length`）。
+- `token_type_ids`: **片段嵌入** 的体现（见 2.2 节），用于区分不同句子。
+- `attention_mask`: 一个非常重要的参数，它告诉模型在进行自注意力计算时，哪些 token 是真实的（值为 1），哪些是填充的（值为 0），模型会忽略填充 token。
+  > **Attention Mask 如何工作？**
+  >
+  > `attention_mask` 张量中的 `0` 会被转换为一个非常大的负数（如 `-10000`），然后加到注意力得分上。这样，在经过 `Softmax` 计算后，这些位置的注意力权重会趋近于 0，从而在计算中被忽略。
+
+（3）**模型推理**:
+- 将预处理好的 `inputs` 字典通过 `inputs` 解包后送入模型。
+- `with torch.no_grad():` 上下文管理器会禁用梯度计算，用于在推理阶段减少内存消耗并加速计算。
+
+（4）**解析与提取**:
+- `outputs.last_hidden_state`: 它的形状是 `(batch_size, sequence_length, hidden_size)`，包含了序列中**每一个词元**在最高层的向量表示。
+- **句子特征提取**: 通过索引 `[:, 0, :]`，可以轻松获得整个批次的 `[CLS]` 位置的隐藏状态；此外，`outputs.pooler_output`（若存在）是对该隐藏状态再经过一层全连接+Tanh 的结果（BERT 原用于 NSP 任务）。具体使用哪一种，建议以验证集效果为准，平均池化或拼接最后几层在实践中也常见。
+- **词元特征提取**: 通过对特定范围进行切片可以获得具体某个句子的所有**非特殊词元**的特征向量。例如，对于第一个句子 "我来自中国"，Tokenizer 会将其转换为 `['[CLS]', '我', '来', '自', '中', '国', '[SEP]']`。因此，我们使用 `[0, 1:6, :]` 来提取索引从 1 到 5 的词元向量，这对应了 "我" 到 "国" 这五个汉字。这些特征可以用于命名实体识别等词元级任务。
+
+### 5.2 模型结构分解
+
+当运行 `print(model)` 时，会得到一个详细的、树状的 BERT 模型结构图，如下所示。
+
+```bash
+BertModel(
+  (embeddings): BertEmbeddings(
+    (word_embeddings): Embedding(21128, 768, padding_idx=0)
+    (position_embeddings): Embedding(512, 768)
+    (token_type_embeddings): Embedding(2, 768)
+    (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+    (dropout): Dropout(p=0.1, inplace=False)
+  )
+  (encoder): BertEncoder(
+    (layer): ModuleList(
+      (0-11): 12 x BertLayer(
+        (attention): BertAttention(
+          (self): BertSdpaSelfAttention(
+            (query): Linear(in_features=768, out_features=768, bias=True)
+            (key): Linear(in_features=768, out_features=768, bias=True)
+            (value): Linear(in_features=768, out_features=768, bias=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+          (output): BertSelfOutput(
+            (dense): Linear(in_features=768, out_features=768, bias=True)
+            (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+        )
+        (intermediate): BertIntermediate(
+          (dense): Linear(in_features=768, out_features=3072, bias=True)
+          (intermediate_act_fn): GELUActivation()
+        )
+        (output): BertOutput(
+          (dense): Linear(in_features=3072, out_features=768, bias=True)
+          (LayerNorm): LayerNorm((768,), eps=1e-12, elementwise_affine=True)
+          (dropout): Dropout(p=0.1, inplace=False)
+        )
+      )
+    )
+  )
+  (pooler): BertPooler(
+    (dense): Linear(in_features=768, out_features=768, bias=True)
+    (activation): Tanh()
+  )
+)
+```
+
+这给我们提供了一个直观的方式来理解它的内部组件，并将其与理论知识对应起来。下面来结合这个结构，对 `bert--base-chinese` 模型的核心部分进行分解：
+
+（1）**`embeddings` (嵌入层)**: 此模块是上文 **BERT 输入表示**理论的具体实现。它负责将输入的 token ID 序列，通过组合 **词元、位置和片段** 三种嵌入向量，转换为模型真正的输入。
+- `(word_embeddings): Embedding(21128, 768)`: **词元嵌入**。这里的 `21128` 是 `bert-base-chinese` 模型的词汇表大小，`768` 则是 BERT-Base 模型的隐藏层维度 H。
+- `(position_embeddings): Embedding(512, 768)`: **位置嵌入**。这就是在理论部分提到的**可学习的位置嵌入**，其 `[512, 768]` 的大小也直接解释了为什么 BERT-Base 模型的最大输入长度是 512 个词元。
+- `(token_type_embeddings): Embedding(2, 768)`: **片段嵌入**。它用于区分输入的两个不同句子（句子 A 和 B），这对于 NSP 这样的预训练任务非常重要。
+- `(LayerNorm)` 和 `(dropout)`: 在将上述三种嵌入向量相加后，会进行层归一化和 Dropout 操作，以稳定训练过程并增强模型的泛化能力。
+
+> 可以打开 [bert-base-chinese 的 `vocab.txt` 词汇表文件](https://huggingface.co/google-bert/bert-base-chinese/blob/main/vocab.txt) 验证一下。该文件共有 21128 行，每一行代表一个词元，词汇表大小正好是 `21128`。
+
+
+（2）**`encoder` (编码器)**: 这是 BERT 的核心主体，正是由前面提到的 **12 层 Transformer 编码器**堆叠而成。
+- `(layer): ModuleList((0-11): 12 x BertLayer)`: `ModuleList` 中包含了 12 个完全相同的 `BertLayer`。模型的“深度”就体现在这里，每一层的输出都会作为下一层的输入，逐层提取更深层次的特征。
+- 在每一个 `BertLayer` 内部，都包含了 2 节中所述的两个核心子层：
+  - `(attention)`: **多头自注意力模块**，其内部的 `query`, `key`, `value` 线性层和 `output.dense` 层分别对应 $W^Q, W^K, W^V$ 和 $W^O$ 矩阵。
+  - `(intermediate)` 和 `(output)`: **位置前馈网络模块**，它通过一个 `768 -> 3072 -> 768` 的升维再降维结构来提取特征。
+
+（3）**`pooler` (池化层)**:
+- 该层功能与前面介绍的特殊词元 **`[CLS]`** 紧密相关。
+- 它的作用是处理 `[CLS]` 词元在经过 12 层 Encoder 后的最终输出向量（即 `last_hidden_state[:, 0]`），通过一个全连接层和 `Tanh` 激活函数，将其转换为一个代表整个序列的“池化”后的特征向量。
+- 这个经过特殊处理的 `[CLS]` 向量，在预训练阶段专门用于完成 **NSP** 任务，从而使其学习到了整个输入序列的聚合信息。
+
